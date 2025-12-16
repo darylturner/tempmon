@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::fs;
+mod config;
+mod probe;
+
 use std::io;
-use std::path::Path;
 use std::thread::sleep;
 use std::time;
 
@@ -9,98 +9,9 @@ use prometheus_exporter::{
     self,
     prometheus::{register_counter_vec, register_gauge_vec},
 };
-use serde::Deserialize;
 
-const W1_DEVICES_PATH: &str = "/sys/bus/w1/devices";
-const CONFIG_PATH: &str = "/etc/tempmon/config.toml";
-
-#[derive(Debug, Deserialize)]
-struct Config {
-    settings: Settings,
-    probe_labels: HashMap<String, String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Settings {
-    metrics_port: u16,
-    probe_interval: u64,
-    probe_resolution: u8,
-}
-
-struct Probe {
-    _id: String,
-    name: String,
-    path: String,
-}
-
-impl Probe {
-    fn set_resolution(&self, bits: u8) -> io::Result<()> {
-        let resolution_path = self.path.replace("/w1_slave", "/resolution");
-        fs::write(resolution_path, bits.to_string())
-    }
-
-    fn read_temperature(&self) -> io::Result<f32> {
-        let data = fs::read_to_string(&self.path)?;
-
-        // the file format looks like:
-        // 6d 01 55 05 7f a5 a5 66 3e : crc=3e YES
-        // 6d 01 55 05 7f a5 a5 66 3e t=22812
-
-        // check the crc
-        if !data.contains("YES") {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "crc check failed",
-            ));
-        }
-
-        // find and read the temperature data
-        if let Some(temp_pos) = data.find("t=") {
-            let temp_str = data[temp_pos + 2..].trim();
-            if let Ok(temp_raw) = temp_str.parse::<i32>() {
-                return Ok(temp_raw as f32 / 1000.0);
-            }
-        }
-
-        Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "failed to parse temperature",
-        ))
-    }
-}
-
-fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
-    let contents = fs::read_to_string(CONFIG_PATH)?;
-    let config: Config = toml::from_str(&contents)?;
-    Ok(config)
-}
-
-fn discover_probes(labels: &HashMap<String, String>) -> io::Result<Vec<Probe>> {
-    let mut probes = Vec::new();
-
-    if !Path::new(W1_DEVICES_PATH).exists() {
-        eprintln!(
-            "warning: {} not found. make sure w1-gpio is enabled.",
-            W1_DEVICES_PATH
-        );
-        return Ok(probes);
-    }
-
-    for entry in fs::read_dir(W1_DEVICES_PATH)? {
-        let id = entry?.file_name().to_string_lossy().to_string();
-
-        if id.starts_with("28-") {
-            let name = labels.get(&id).cloned().unwrap_or_else(|| id.clone());
-            probes.push(Probe {
-                _id: id.clone(),
-                name,
-                path: format!("{}/{}/w1_slave", W1_DEVICES_PATH, id),
-            });
-        }
-    }
-
-    Ok(probes)
-}
+use config::load_config;
+use probe::{discover_probes, Probe};
 
 fn run_loop(probes: &[Probe], port: u16, interval: time::Duration) -> Result<(), Box<dyn std::error::Error>> {
     let binding = format!("0.0.0.0:{port}").parse().expect("parse binding");
@@ -147,7 +58,7 @@ fn main() {
     let config = match load_config() {
         Ok(cfg) => cfg,
         Err(e) => {
-            eprintln!("error loading config from {}: {}", CONFIG_PATH, e);
+            eprintln!("error loading config: {}", e);
             std::process::exit(1);
         }
     };
