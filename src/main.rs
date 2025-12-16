@@ -56,7 +56,7 @@ impl Probe {
 
         // find and read the temperature data
         if let Some(temp_pos) = data.find("t=") {
-            let temp_str = &data[temp_pos + 2..].trim();
+            let temp_str = data[temp_pos + 2..].trim();
             if let Ok(temp_raw) = temp_str.parse::<i32>() {
                 return Ok(temp_raw as f32 / 1000.0);
             }
@@ -102,25 +102,21 @@ fn discover_probes(labels: &HashMap<String, String>) -> io::Result<Vec<Probe>> {
     Ok(probes)
 }
 
-fn run_loop(probes: &Vec<Probe>, port: u16, interval: time::Duration) {
-    let binding = format!("127.0.0.1:{port}").parse().expect("parse binding");
-    if let Err(e) = prometheus_exporter::start(binding) {
-        eprintln!("error starting prometheus exporter: {e}");
-    }
+fn run_loop(probes: &[Probe], port: u16, interval: time::Duration) -> Result<(), Box<dyn std::error::Error>> {
+    let binding = format!("0.0.0.0:{port}").parse().expect("parse binding");
+    prometheus_exporter::start(binding)?;
 
     let temp_readings = register_gauge_vec!(
         "dash_temp_readings",
         "readings from the temperature probes",
         &["probe"]
-    )
-    .unwrap();
+    )?;
 
     let temp_read_errors = register_counter_vec!(
         "dash_temp_read_errors_total",
         "total number of failed temperature reads",
         &["probe", "error_type"]
-    )
-    .unwrap();
+    )?;
 
     loop {
         for p in probes {
@@ -158,18 +154,19 @@ fn main() {
 
     let probe_interval = time::Duration::from_secs(config.settings.probe_interval);
 
-    println!("discovering ds18b20 temperature probes...\n");
+    println!("discovering ds18b20 temperature probes...");
     match discover_probes(&config.probe_labels) {
         Ok(probes) => {
             println!("found {} probe(s):\n", probes.len());
             if !probes.is_empty() {
-                // set resolution for all probes
                 for probe in &probes {
                     if let Err(e) = probe.set_resolution(config.settings.probe_resolution) {
                         eprintln!("warning: failed to set resolution for {}: {}", probe.name, e);
                     }
                 }
-                run_loop(&probes, config.settings.metrics_port, probe_interval);
+                if let Err(e) = run_loop(&probes, config.settings.metrics_port, probe_interval) {
+                    eprintln!("error on loop initialisation: {e}");
+                };
             }
         }
         Err(e) => {
