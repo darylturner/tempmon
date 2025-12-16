@@ -1,0 +1,23 @@
+[settings]
+# Port for Prometheus metrics endpoint
+metrics_port = 9184
+
+# Interval between temperature readings (seconds)
+probe_interval = 30
+
+# DS18B20 resolution: 9, 10, 11, or 12 bits
+# 9  = 0.5°C    (~94ms conversion)
+# 10 = 0.25°C   (~188ms conversion) - recommended for vivarium
+# 11 = 0.125°C  (~375ms conversion)
+# 12 = 0.0625°C (~750ms conversion)
+probe_resolution = 10
+
+[probe_labels]
+# Map hardware IDs to friendly names
+# Format: "hardware-id" = "friendly-name"
+#
+# To find your probe IDs, run: ls /sys/bus/w1/devices/
+# Example entries:
+# "28-0123456789ab" = "basking_spot"
+# "28-0123456789cd" = "cool_side"
+# "28-0123456789ef" = "hide_box"

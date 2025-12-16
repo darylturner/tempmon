@@ -1,4 +1,4 @@
-use std::env;
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -9,20 +9,31 @@ use prometheus_exporter::{
     self,
     prometheus::{register_counter_vec, register_gauge_vec},
 };
+use serde::Deserialize;
 
 const W1_DEVICES_PATH: &str = "/sys/bus/w1/devices";
+const CONFIG_PATH: &str = "/etc/tempmon/config.toml";
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    settings: Settings,
+    probe_labels: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Settings {
+    metrics_port: u16,
+    probe_interval: u64,
+    probe_resolution: u8,
+}
 
 struct Probe {
-    id: String,
+    _id: String,
+    name: String,
     path: String,
 }
 
 impl Probe {
-    fn friendly_name(&self) -> String {
-        env::var(format!("PROBE_{}", self.id))
-            .unwrap_or_else(|_| self.id.clone())
-    }
-
     fn set_resolution(&self, bits: u8) -> io::Result<()> {
         let resolution_path = self.path.replace("/w1_slave", "/resolution");
         fs::write(resolution_path, bits.to_string())
@@ -58,7 +69,13 @@ impl Probe {
     }
 }
 
-fn discover_probes() -> io::Result<Vec<Probe>> {
+fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
+    let contents = fs::read_to_string(CONFIG_PATH)?;
+    let config: Config = toml::from_str(&contents)?;
+    Ok(config)
+}
+
+fn discover_probes(labels: &HashMap<String, String>) -> io::Result<Vec<Probe>> {
     let mut probes = Vec::new();
 
     if !Path::new(W1_DEVICES_PATH).exists() {
@@ -70,12 +87,14 @@ fn discover_probes() -> io::Result<Vec<Probe>> {
     }
 
     for entry in fs::read_dir(W1_DEVICES_PATH)? {
-        let name = entry?.file_name().to_string_lossy().to_string();
+        let id = entry?.file_name().to_string_lossy().to_string();
 
-        if name.starts_with("28-") {
+        if id.starts_with("28-") {
+            let name = labels.get(&id).cloned().unwrap_or_else(|| id.clone());
             probes.push(Probe {
-                id: name.clone(),
-                path: format!("{}/{}/w1_slave", W1_DEVICES_PATH, name),
+                _id: id.clone(),
+                name,
+                path: format!("{}/{}/w1_slave", W1_DEVICES_PATH, id),
             });
         }
     }
@@ -105,11 +124,10 @@ fn run_loop(probes: &Vec<Probe>, port: u16, interval: time::Duration) {
 
     loop {
         for p in probes {
-            let name = p.friendly_name();
             match p.read_temperature() {
                 Ok(temp) => {
-                    temp_readings.with_label_values(&[&name]).set(temp.into());
-                    println!("probe: {}, temperature: {:.2}°c", name, temp);
+                    temp_readings.with_label_values(&[&p.name]).set(temp.into());
+                    println!("probe: {}, temperature: {:.2}°c", p.name, temp);
                 }
                 Err(e) => {
                     let error_type = match e.kind() {
@@ -119,9 +137,9 @@ fn run_loop(probes: &Vec<Probe>, port: u16, interval: time::Duration) {
                         _ => "other",
                     };
                     temp_read_errors
-                        .with_label_values(&[&name, error_type])
+                        .with_label_values(&[&p.name, error_type])
                         .inc();
-                    println!("probe: {}, error reading temperature: {}", name, e);
+                    println!("probe: {}, error reading temperature: {}", p.name, e);
                 }
             }
         }
@@ -130,46 +148,28 @@ fn run_loop(probes: &Vec<Probe>, port: u16, interval: time::Duration) {
 }
 
 fn main() {
-    let metrics_port: u16 = env::var("METRICS_PORT")
-        .unwrap_or("9184".to_string())
-        .parse()
-        .unwrap();
+    let config = match load_config() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("error loading config from {}: {}", CONFIG_PATH, e);
+            std::process::exit(1);
+        }
+    };
 
-    let probe_interval = time::Duration::from_secs(
-        env::var("PROBE_INTERVAL")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(30)
-    );
-
-    /* 
-    DS18B20 Resolution Options
-    The sensor supports 4 resolution settings:
-
-    | Bits | Resolution | Conversion Time  |
-    |------|------------|------------------|
-    | 9    | 0.5°C      | ~93.75ms         |
-    | 10   | 0.25°C     | ~187.5ms         | <-- our default
-    | 11   | 0.125°C    | ~375ms           |
-    | 12   | 0.0625°C   | ~750ms (default) | <-- hardware default
-    */
-    let probe_resolution: u8 = env::var("PROBE_RESOLUTION")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(10);
+    let probe_interval = time::Duration::from_secs(config.settings.probe_interval);
 
     println!("discovering ds18b20 temperature probes...\n");
-    match discover_probes() {
+    match discover_probes(&config.probe_labels) {
         Ok(probes) => {
-            println!("found {} probes(s):\n", probes.len());
+            println!("found {} probe(s):\n", probes.len());
             if !probes.is_empty() {
                 // set resolution for all probes
                 for probe in &probes {
-                    if let Err(e) = probe.set_resolution(probe_resolution) {
-                        eprintln!("warning: failed to set resolution for {}: {}", probe.friendly_name(), e);
+                    if let Err(e) = probe.set_resolution(config.settings.probe_resolution) {
+                        eprintln!("warning: failed to set resolution for {}: {}", probe.name, e);
                     }
                 }
-                run_loop(&probes, metrics_port, probe_interval);
+                run_loop(&probes, config.settings.metrics_port, probe_interval);
             }
         }
         Err(e) => {
