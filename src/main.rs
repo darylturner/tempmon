@@ -18,6 +18,11 @@ struct Probe {
 }
 
 impl Probe {
+    fn friendly_name(&self) -> String {
+        env::var(format!("PROBE_{}", self.id))
+            .unwrap_or_else(|_| self.id.clone())
+    }
+
     fn set_resolution(&self, bits: u8) -> io::Result<()> {
         let resolution_path = self.path.replace("/w1_slave", "/resolution");
         fs::write(resolution_path, bits.to_string())
@@ -100,10 +105,11 @@ fn run_loop(probes: &Vec<Probe>, port: u16, interval: time::Duration) {
 
     loop {
         for p in probes {
+            let name = p.friendly_name();
             match p.read_temperature() {
                 Ok(temp) => {
-                    temp_readings.with_label_values(&[&p.id]).set(temp.into());
-                    println!("probe id: {}, temperature: {:.2}°c", p.id, temp);
+                    temp_readings.with_label_values(&[&name]).set(temp.into());
+                    println!("probe: {}, temperature: {:.2}°c", name, temp);
                 }
                 Err(e) => {
                     let error_type = match e.kind() {
@@ -113,9 +119,9 @@ fn run_loop(probes: &Vec<Probe>, port: u16, interval: time::Duration) {
                         _ => "other",
                     };
                     temp_read_errors
-                        .with_label_values(&[&p.id, error_type])
+                        .with_label_values(&[&name, error_type])
                         .inc();
-                    println!("probe id: {}, error reading temperature: {}", p.id, e);
+                    println!("probe: {}, error reading temperature: {}", name, e);
                 }
             }
         }
@@ -160,7 +166,7 @@ fn main() {
                 // set resolution for all probes
                 for probe in &probes {
                     if let Err(e) = probe.set_resolution(probe_resolution) {
-                        eprintln!("warning: failed to set resolution for {}: {}", probe.id, e);
+                        eprintln!("warning: failed to set resolution for {}: {}", probe.friendly_name(), e);
                     }
                 }
                 run_loop(&probes, metrics_port, probe_interval);
