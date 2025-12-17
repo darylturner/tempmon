@@ -9,11 +9,12 @@ pub fn generate_temperature_page(temps: &HashMap<String, Option<f32>>) -> String
     for (name, temp) in temp_vec {
         let temp_display = match temp {
             Some(t) => {
-                let color = if *t < 20.0 {
+                // <22 blue, 22-38 green, 38-42 yellow, >=42 red
+                let color = if *t < 22.0 {
                     "#88C0D0" // nord8 - frost blue
-                } else if *t < 25.0 {
+                } else if *t < 38.0 {
                     "#A3BE8C" // nord14 - aurora green
-                } else if *t < 30.0 {
+                } else if *t < 42.0 {
                     "#EBCB8B" // nord13 - aurora yellow
                 } else {
                     "#BF616A" // nord11 - aurora red
@@ -40,8 +41,14 @@ pub fn generate_temperature_page(temps: &HashMap<String, Option<f32>>) -> String
 <html>
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta http-equiv="refresh" content="15">
+
+    <!-- Apple Mobile Web App -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="TempMon">
+
     <title>Temperature Monitor</title>
     <style>
         body {{
@@ -98,7 +105,7 @@ pub fn generate_temperature_page(temps: &HashMap<String, Option<f32>>) -> String
 </head>
 <body>
     <div class="container">
-        <h1>🌡️ Temperature Monitor</h1>
+        <h1>Temperature Monitor</h1>
         <table>
             <thead>
                 <tr>
