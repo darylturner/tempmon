@@ -1,22 +1,21 @@
 mod config;
 mod probe;
 mod html;
+mod server;
 
 use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
-use std::thread::{self, sleep};
+use std::thread::sleep;
 use std::time;
 
-use prometheus::{Encoder, TextEncoder, register_counter_vec, register_gauge_vec};
-use tiny_http::{Response, Server};
+use prometheus::{register_counter_vec, register_gauge_vec};
 
 use config::load_config;
 use probe::{discover_probes, Probe};
+use server::TempData;
 
-type TempData = Arc<Mutex<HashMap<String, Option<f32>>>>;
-
-fn run_loop(probes: &[Probe], port: u16, interval: time::Duration) -> Result<(), Box<dyn std::error::Error>> {
+fn run_loop(probes: &[Probe], port: u16, interval: time::Duration, calibration_offsets: &HashMap<String, f32>) -> Result<(), Box<dyn std::error::Error>> {
     let current_temps: TempData = Arc::new(Mutex::new(HashMap::new()));
 
     // sets up a scope so that the lock is dropped once done
@@ -27,70 +26,37 @@ fn run_loop(probes: &[Probe], port: u16, interval: time::Duration) -> Result<(),
         }
     }
 
-    let temp_readings = register_gauge_vec!(
+    let prom_temp_readings = register_gauge_vec!(
         "dash_temp_readings",
-        "readings from the temperature probes",
+        "calibrated readings from the temperature probes",
         &["probe"]
     )?;
 
-    let temp_read_errors = register_counter_vec!(
+    let prom_temp_readings_raw = register_gauge_vec!(
+        "dash_temp_readings_raw",
+        "uncalibrated readings from the temperature probes",
+        &["probe"]
+    )?;
+
+    let prom_temp_read_errors = register_counter_vec!(
         "dash_temp_read_errors_total",
         "total number of failed temperature reads",
         &["probe", "error_type"]
     )?;
 
-    let server = Server::http(format!("0.0.0.0:{port}"))
-        .map_err(|e| format!("failed to start http server: {}", e))?;
+    // start http server
+    server::start(port, Arc::clone(&current_temps))?;
 
-    println!("http server listening on 0.0.0.0:{}", port);
-
-    let temps_for_server = Arc::clone(&current_temps);
-    thread::spawn(move || {
-        for request in server.incoming_requests() {
-            let temps = temps_for_server.lock().unwrap();
-
-            match request.url() {
-                "/metrics" => {
-                    let encoder = TextEncoder::new();
-                    let metric_families = prometheus::gather();
-                    let mut buffer = vec![];
-                    encoder.encode(&metric_families, &mut buffer).unwrap();
-
-                    let response = Response::from_data(buffer)
-                        .with_header(
-                            tiny_http::Header::from_bytes(&b"Content-Type"[..],
-                            &b"text/plain; version=0.0.4"[..]).unwrap()
-                        );
-                    let _ = request.respond(response);
-                }
-                "/" => {
-                    let html = html::generate_temperature_page(&temps);
-                    let response = Response::from_string(html)
-                        .with_header(
-                            tiny_http::Header::from_bytes(&b"Content-Type"[..],
-                            &b"text/html; charset=utf-8"[..]).unwrap()
-                        );
-                    let _ = request.respond(response);
-                }
-                "/health" => {
-                    let response = Response::from_string("OK");
-                    let _ = request.respond(response);
-                }
-                _ => {
-                    let response = Response::from_string("404 Not Found")
-                        .with_status_code(404);
-                    let _ = request.respond(response);
-                }
-            }
-        }
-    });
-
-
+    // probe loop
     loop {
         for p in probes {
             match p.read_temperature() {
-                Ok(temp) => {
-                    temp_readings.with_label_values(&[&p.name]).set(temp.into());
+                Ok(raw_temp) => {
+                    let offset = calibration_offsets.get(&p.id).copied().unwrap_or(0.0);
+                    let temp = raw_temp + offset;
+
+                    prom_temp_readings_raw.with_label_values(&[&p.name]).set(raw_temp.into());
+                    prom_temp_readings.with_label_values(&[&p.name]).set(temp.into());
 
                     let mut temps = current_temps.lock().unwrap();
                     temps.insert(p.name.clone(), Some(temp));
@@ -104,7 +70,7 @@ fn run_loop(probes: &[Probe], port: u16, interval: time::Duration) -> Result<(),
                         io::ErrorKind::InvalidData => "invalid_data",
                         _ => "other",
                     };
-                    temp_read_errors
+                    prom_temp_read_errors
                         .with_label_values(&[&p.name, error_type])
                         .inc();
 
@@ -142,7 +108,7 @@ fn main() {
                         eprintln!("warning: failed to set resolution for {}: {}", probe.name, e);
                     }
                 }
-                if let Err(e) = run_loop(&probes, config.settings.metrics_port, probe_interval) {
+                if let Err(e) = run_loop(&probes, config.settings.metrics_port, probe_interval, &config.calibration_offsets) {
                     eprintln!("error on loop initialisation: {e}");
                 };
             }

@@ -6,7 +6,7 @@ use std::path::Path;
 const W1_DEVICES_PATH: &str = "/sys/bus/w1/devices";
 
 pub struct Probe {
-    _id: String,
+    pub id: String,
     pub name: String,
     pub path: String,
 }
@@ -67,7 +67,7 @@ pub fn discover_probes(labels: &HashMap<String, String>) -> io::Result<Vec<Probe
         if id.starts_with("28-") {
             let name = labels.get(&id).cloned().unwrap_or_else(|| id.clone());
             probes.push(Probe {
-                _id: id.clone(),
+                id: id.clone(),
                 name,
                 path: format!("{}/{}/w1_slave", W1_DEVICES_PATH, id),
             });

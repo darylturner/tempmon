@@ -11,30 +11,31 @@ pub fn generate_temperature_page(temps: &HashMap<String, Option<f32>>) -> String
             Some(t) => {
                 // <22 blue, 22-38 green, 38-42 yellow, >=42 red
                 let color = if *t < 22.0 {
-                    "#88C0D0" // nord8 - frost blue
+                    "#88c0d0" // nord8 - frost blue
                 } else if *t < 38.0 {
-                    "#A3BE8C" // nord14 - aurora green
+                    "#a3be8c" // nord14 - aurora green
                 } else if *t < 42.0 {
-                    "#EBCB8B" // nord13 - aurora yellow
+                    "#ebcb8b" // nord13 - aurora yellow
                 } else {
-                    "#BF616A" // nord11 - aurora red
+                    "#bf616a" // nord11 - aurora red
                 };
                 format!(
-                    "<span style='color: {}; font-size: 2em; font-weight: bold;'>{:.1}°C</span>",
+                    "<span style='color: {}; font-size: 2em; font-weight: bold;'>{:.2}°C</span>",
                     color, t
                 )
             }
-            None => "<span style='color: #D08770; font-style: italic;'>Error</span>".to_string(),
+            None => "<span style='color: #d08770; font-style: italic;'>Error</span>".to_string(),
         };
 
         rows.push_str(&format!(
-            "<tr><td style='padding: 15px; border-bottom: 1px solid #4C566A;'>{}</td>\
-             <td style='padding: 15px; border-bottom: 1px solid #4C566A; text-align: right;'>{}</td></tr>",
+            "<tr><td style='padding: 15px; border-bottom: 1px solid #4c566a;'>{}</td>\
+             <td style='padding: 15px; border-bottom: 1px solid #4c566a; text-align: right;'>{}</td></tr>",
             name, temp_display
         ));
     }
 
-    let datetime = time::OffsetDateTime::now_utc();
+    // truncate the timestamp
+    let datetime = time::OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
 
     format!(
         r#"<!DOCTYPE html>
@@ -56,19 +57,19 @@ pub fn generate_temperature_page(temps: &HashMap<String, Option<f32>>) -> String
             max-width: 800px;
             margin: 40px auto;
             padding: 20px;
-            background: #3B4252;
-            color: #ECEFF4;
+            background: #3b4252;
+            color: #eceff4;
         }}
         .container {{
-            background: #2E3440;
+            background: #2e3440;
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             padding: 30px;
         }}
         h1 {{
-            color: #ECEFF4;
+            color: #eceff4;
             margin-top: 0;
-            border-bottom: 3px solid #88C0D0;
+            border-bottom: 3px solid #88c0d0;
             padding-bottom: 10px;
         }}
         table {{
@@ -79,26 +80,26 @@ pub fn generate_temperature_page(temps: &HashMap<String, Option<f32>>) -> String
         th {{
             text-align: left;
             padding: 15px;
-            background: #434C5E;
-            color: #ECEFF4;
+            background: #434c5e;
+            color: #eceff4;
             font-weight: 600;
         }}
         td {{
-            color: #D8DEE9;
+            color: #d8dee9;
         }}
         .footer {{
             margin-top: 30px;
             padding-top: 20px;
-            border-top: 1px solid #4C566A;
-            color: #D8DEE9;
+            border-top: 1px solid #4c566a;
+            color: #d8dee9;
             font-size: 0.9em;
         }}
         .footer a {{
-            color: #88C0D0;
+            color: #88c0d0;
             text-decoration: none;
         }}
         .footer a:hover {{
-            color: #81A1C1;
+            color: #81a1c1;
             text-decoration: underline;
         }}
     </style>
