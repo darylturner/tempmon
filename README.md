@@ -23,7 +23,7 @@ A lightweight Rust application for monitoring DS18B20 temperature probes on Rasp
 
 1. **Edit the boot configuration:**
    ```bash
-   sudo nano /boot/config.txt
+   sudo vim /boot/config.txt
    ```
 
 2. **Add the following line:**
@@ -138,7 +138,7 @@ cargo zigbuild --target=aarch64-unknown-linux-musl --release
 
 3. **Edit the configuration:**
    ```bash
-   sudo nano /etc/tempmon/config.toml
+   sudo vim /etc/tempmon/config.toml
    ```
 
 ### Configuration Options
