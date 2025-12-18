@@ -165,69 +165,6 @@ probe_resolution = 10
 "28-0123456789cd" = "cool_side"
 ```
 
-### Finding Probe IDs
-
-To discover your connected sensor IDs:
-```bash
-ls /sys/bus/w1/devices/
-```
-
-Look for entries starting with `28-` (DS18B20 family code).
-
-## Usage
-
-### Run Directly
-
-```bash
-sudo tempmon
-```
-
-The application will:
-1. Load configuration from `/etc/tempmon/config.toml`
-2. Discover all DS18B20 sensors
-3. Set the configured resolution for each sensor
-4. Start the Prometheus metrics endpoint on the configured port
-5. Begin reading temperatures at the configured interval
-
-### Run as a Systemd Service
-
-Create `/etc/systemd/system/tempmon.service`:
-
-```ini
-[Unit]
-Description=Temperature Monitor
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/tempmon
-Restart=always
-RestartSec=10
-User=root
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start the service:
-```bash
-sudo systemctl enable tempmon
-sudo systemctl start tempmon
-sudo systemctl status tempmon
-```
-
-View logs:
-```bash
-sudo journalctl -u tempmon -f
-```
-
-## Prometheus Integration
-
-### Metrics Exposed
-
-- `dash_temp_readings{probe="<name>"}` - Current temperature in Celsius
-- `dash_temp_read_errors_total{probe="<name>",error_type="<type>"}` - Total read errors
-
 ### Prometheus Configuration
 
 Add to your `prometheus.yml`:
@@ -239,32 +176,6 @@ scrape_configs:
       - targets: ['<raspberry-pi-ip>:9184']
 ```
 
-### Testing the Endpoint
-
-```bash
-curl http://<raspberry-pi-ip>:9184/metrics
-```
-
-## Troubleshooting
-
-### No sensors detected
-- Check wiring and pull-up resistor
-- Verify 1-wire is enabled: `lsmod | grep w1`
-- Check `/sys/bus/w1/devices/` for sensor entries
-
-### Permission denied errors
-- Run with `sudo` (requires root access to modify sensor resolution)
-- Check file permissions on `/sys/bus/w1/devices/`
-
-### Port already in use
-- Check if another process is using the metrics port: `sudo netstat -tulpn | grep 9184`
-- Change `metrics_port` in config.toml
-
-### Inconsistent readings
-- Increase `probe_resolution` for better accuracy
-- Check sensor wiring and connections
-- Verify power supply is stable
-
 ## License
 
-[Add your license information here]
+MIT License
