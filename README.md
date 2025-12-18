@@ -68,18 +68,6 @@ Standard connection (using GPIO4/pin 7):
 
 ## Installation
 
-### Pre-built Binary
-
-1. Copy the compiled binary to your Raspberry Pi:
-   ```bash
-   scp target/arm-unknown-linux-musleabihf/release/tempmon pi@your-pi:/usr/local/bin/
-   ```
-
-2. Make it executable:
-   ```bash
-   sudo chmod +x /usr/local/bin/tempmon
-   ```
-
 ### Building from Source
 
 Prerequisites:
