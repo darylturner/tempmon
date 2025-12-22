@@ -35,7 +35,9 @@ pub fn generate_temperature_page(temps: &HashMap<String, Option<f32>>) -> String
     }
 
     // truncate the timestamp
-    let datetime = time::OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+    let datetime = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .unwrap();
 
     format!(
         r#"<!DOCTYPE html>

@@ -1,6 +1,6 @@
 mod config;
-mod probe;
 mod html;
+mod probe;
 mod server;
 
 use std::collections::HashMap;
@@ -12,10 +12,15 @@ use std::time;
 use prometheus::{register_counter_vec, register_gauge_vec};
 
 use config::load_config;
-use probe::{discover_probes, Probe};
+use probe::{Probe, discover_probes};
 use server::TempData;
 
-fn run_loop(probes: &[Probe], port: u16, interval: time::Duration, calibration_offsets: &HashMap<String, f32>) -> Result<(), Box<dyn std::error::Error>> {
+fn run_loop(
+    probes: &[Probe],
+    port: u16,
+    interval: time::Duration,
+    calibration_offsets: &HashMap<String, f32>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let current_temps: TempData = Arc::new(Mutex::new(HashMap::new()));
 
     // sets up a scope so that the lock is dropped once done
@@ -44,8 +49,8 @@ fn run_loop(probes: &[Probe], port: u16, interval: time::Duration, calibration_o
         &["probe", "error_type"]
     )?;
 
-    // start http server
-    server::start(port, Arc::clone(&current_temps))?;
+    // start http server with two request handler thread
+    server::start(port, Arc::clone(&current_temps), 2)?;
 
     // probe loop
     loop {
@@ -55,8 +60,12 @@ fn run_loop(probes: &[Probe], port: u16, interval: time::Duration, calibration_o
                     let offset = calibration_offsets.get(&p.id).copied().unwrap_or(0.0);
                     let temp = raw_temp + offset;
 
-                    prom_temp_readings_raw.with_label_values(&[&p.name]).set(raw_temp.into());
-                    prom_temp_readings.with_label_values(&[&p.name]).set(temp.into());
+                    prom_temp_readings_raw
+                        .with_label_values(&[&p.name])
+                        .set(raw_temp.into());
+                    prom_temp_readings
+                        .with_label_values(&[&p.name])
+                        .set(temp.into());
 
                     let mut temps = current_temps.lock().unwrap();
                     temps.insert(p.name.clone(), Some(temp));
@@ -85,8 +94,6 @@ fn run_loop(probes: &[Probe], port: u16, interval: time::Duration, calibration_o
     }
 }
 
-
-
 fn main() {
     let config = match load_config() {
         Ok(cfg) => cfg,
@@ -105,10 +112,18 @@ fn main() {
             if !probes.is_empty() {
                 for probe in &probes {
                     if let Err(e) = probe.set_resolution(config.settings.probe_resolution) {
-                        eprintln!("warning: failed to set resolution for {}: {}", probe.name, e);
+                        eprintln!(
+                            "warning: failed to set resolution for {}: {}",
+                            probe.name, e
+                        );
                     }
                 }
-                if let Err(e) = run_loop(&probes, config.settings.metrics_port, probe_interval, &config.calibration_offsets) {
+                if let Err(e) = run_loop(
+                    &probes,
+                    config.settings.metrics_port,
+                    probe_interval,
+                    &config.calibration_offsets,
+                ) {
                     eprintln!("error on loop initialisation: {e}");
                 };
             }
